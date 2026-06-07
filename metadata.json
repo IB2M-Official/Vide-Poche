@@ -1,0 +1,6 @@
+{
+  "name": "Vide-Poche",
+  "description": "Scanner de tickets de caisse et gestionnaire de garanties éphémères local, gratuit et respectueux de la vie privée.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
