@@ -149,6 +149,7 @@ fun AddReceiptDialog(
     var expandedCategory by remember { mutableStateOf(false) }
     var activeImageIndex by remember { mutableStateOf(0) }
     var isOcrAnalyzing by remember { mutableStateOf(false) }
+    var showFullscreenImage by remember { mutableStateOf<String?>(null) }
 
     val dateFormat = remember { SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE) }
 
@@ -169,15 +170,32 @@ fun AddReceiptDialog(
         if (tempImagePaths.isNotEmpty()) {
             isOcrAnalyzing = true
             try {
-                // Analyse de la première photo (contenant généralement les infos clés du ticket)
+                // 1. Analyse de la première photo (contenant généralement les infos clés du ticket)
                 val parsed = OcrReceiptParser.parseReceiptImage(context, tempImagePaths.first())
                 title = parsed.title
                 warrantyMonths = parsed.warrantyMonths
                 category = parsed.category
-                if (parsed.barcode != null) {
-                    barcode = parsed.barcode
-                }
                 notes = parsed.notes ?: ""
+                
+                // Si la date d'achat est détectée de manière sûre via OCR, on la pré-configurer
+                if (parsed.purchaseDate != null) {
+                    purchaseDate = parsed.purchaseDate
+                }
+
+                var finalBarcode = parsed.barcode
+
+                // 2. Si on a une deuxième photo (gros plan du code-barres exprès), on l'analyse exprès pour le code-barres !
+                if (tempImagePaths.size > 1) {
+                    val parsedBarcodeImg = OcrReceiptParser.parseReceiptImage(context, tempImagePaths[1])
+                    if (parsedBarcodeImg.barcode != null) {
+                        finalBarcode = parsedBarcodeImg.barcode
+                        notes += "\n[Code-barres extrait de la photo 2 (gros plan) : ${parsedBarcodeImg.barcode}]"
+                    }
+                }
+
+                if (finalBarcode != null) {
+                    barcode = finalBarcode
+                }
             } catch (e: Exception) {
                 Log.e("AddReceiptDialog", "Erreur lors de l'analyse OCR", e)
             } finally {
@@ -282,7 +300,13 @@ fun AddReceiptDialog(
                             .fillMaxWidth()
                             .height(180.dp)
                             .clip(RoundedCornerShape(16.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .clickable {
+                                if (tempImagePaths.isNotEmpty()) {
+                                    showFullscreenImage = tempImagePaths[activeImageIndex]
+                                }
+                            }
+                            .testTag("add_receipt_image_preview"),
                         contentAlignment = Alignment.Center
                     ) {
                         if (tempImagePaths.isNotEmpty()) {
@@ -611,5 +635,13 @@ fun AddReceiptDialog(
         ) {
             DatePicker(state = datePickerState)
         }
+    }
+
+    // Affichage plein écran de la photo si cliquée
+    if (showFullscreenImage != null) {
+        FullscreenImageDialog(
+            imagePath = showFullscreenImage!!,
+            onDismiss = { showFullscreenImage = null }
+        )
     }
 }

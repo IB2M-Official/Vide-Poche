@@ -34,6 +34,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import java.io.File
@@ -87,7 +89,7 @@ fun CameraCaptureScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Overlay d'assistance visuelle pour cadrer le ticket de caisse
+        // Overlay d'assistance visuelle pour cadrer le ticket ou le code-barres de manière dynamique
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -95,35 +97,66 @@ fun CameraCaptureScreen(
                 .padding(horizontal = 32.dp),
             contentAlignment = Alignment.Center
         ) {
+            val ratio = if (capturedPaths.size == 1) 2.2f else 0.65f
+            val borderColor = if (capturedPaths.size == 1) MaterialTheme.colorScheme.error else Color.White
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(0.65f) // Format vertical classique
-                    .border(BorderStroke(2.dp, Color.White.copy(alpha = 0.8f)), RoundedCornerShape(16.dp))
-                    .background(Color.Black.copy(alpha = 0.15f))
+                    .aspectRatio(ratio)
+                    .border(BorderStroke(2.dp, borderColor.copy(alpha = 0.8f)), RoundedCornerShape(16.dp))
+                    .background(Color.Black.copy(alpha = 0.2f))
             )
         }
 
-        // Instructions à l'écran
+        // Instructions à l'écran adaptatives et pas-à-pas
         Card(
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = 64.dp)
+                .padding(top = 110.dp)
                 .padding(horizontal = 24.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.7f)),
-            shape = CircleShape
+            colors = CardDefaults.cardColors(
+                containerColor = if (capturedPaths.size == 1) {
+                    MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f)
+                } else {
+                    Color.Black.copy(alpha = 0.7f)
+                }
+            ),
+            shape = RoundedCornerShape(12.dp)
         ) {
-            val textInstr = if (capturedPaths.isEmpty()) {
-                "Cadrez votre ticket de caisse"
-            } else {
-                "${capturedPaths.size} photo(s) prise(s)"
+            val (mainText, hintText) = when (capturedPaths.size) {
+                0 -> Pair(
+                    "ÉTAPE 1 : Photographiez le ticket en entier",
+                    "Cadrez les dates, le magasin et le texte des garanties"
+                )
+                1 -> Pair(
+                    "ÉTAPE 2 (REQUIS) : Gros plan du code-barres 🔍",
+                    "Placez le code-barres horizontalement dans le rectangle rouge"
+                )
+                else -> Pair(
+                    "Clichés sauvegardés avec succès ! 📸",
+                    "Appuyez sur le bouton vert en bas à droite pour l'analyser"
+                )
             }
-            Text(
-                text = textInstr,
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
-            )
+
+            Column(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = mainText,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                    color = if (capturedPaths.size == 1) MaterialTheme.colorScheme.onErrorContainer else Color.White,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = hintText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (capturedPaths.size == 1) MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f) else Color.LightGray,
+                    textAlign = TextAlign.Center
+                )
+            }
         }
 
         // Bouton de fermeture à gauche

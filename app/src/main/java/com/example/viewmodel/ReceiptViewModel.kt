@@ -181,66 +181,97 @@ class ReceiptViewModel(
     }
 
     /**
-     * Planifie le rappel d'expiration de la garantie (30 jours avant le terme).
+     * Planifie plusieurs rappels d'expiration de la garantie (3 mois, 30 jours, 7 jours, 1 jour avant le terme).
      */
     private fun scheduleWarrantyReminder(receiptId: Long, title: String, warrantyEndDate: Long) {
         val alarmManager = app.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
-
-        // 30 jours en millisecondes = 30 * 24 * 60 * 60 * 1000
-        val thirtyDaysInMillis = 30L * 24 * 60 * 60 * 1000
-        val reminderTime = warrantyEndDate - thirtyDaysInMillis
-
         val now = System.currentTimeMillis()
 
-        // Si la garantie expire dans moins de 30 jours mais n'est pas encore passée,
-        // on planifie l'alarme pour s'exécuter dans quelques secondes, ou simplement au moment actuel
-        // pour avertir immédiatement l'utilisateur. Sinon, on planifie à la date voulue.
-        val targetTriggerTime = when {
-            reminderTime > now -> reminderTime
-            warrantyEndDate > now -> now + 5000 // Alerte rapide dans 5 secondes si on est déjà dans la bande des 30 jours restants
-            else -> return // Déjà expirée, aucune alarme nécessaire
-        }
-
-        val intent = Intent(app, WarrantyReminderReceiver::class.java).apply {
-            putExtra(WarrantyReminderReceiver.EXTRA_RECEIPT_TITLE, title)
-            putExtra(WarrantyReminderReceiver.EXTRA_RECEIPT_ID, receiptId)
-        }
-
-        val pendingIntent = PendingIntent.getBroadcast(
-            app,
-            receiptId.hashCode(),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        // Liste des rappels (subId unique de 1 à 4, offset en millisecondes, et message personnalisé)
+        val reminders = listOf(
+            Triple(1, 90L * 24 * 60 * 60 * 1000, "La garantie de \"$title\" expire dans 3 mois ! Pensez à vérifier s'il fonctionne toujours parfaitement."),
+            Triple(2, 30L * 24 * 60 * 60 * 1000, "Attention : la garantie pour \"$title\" expire dans 30 jours (1 mois) !"),
+            Triple(3, 7L * 24 * 60 * 60 * 1000, "Dernière semaine ! La garantie de \"$title\" prend fin dans 7 jours."),
+            Triple(4, 1L * 24 * 60 * 60 * 1000, "Urgent : la garantie de votre produit \"$title\" expire DEMAIN !")
         )
 
-        try {
-            // Utilise setAndAllowWhileIdle pour s'assurer que l'appareil réveille l'app en mode Doze
-            alarmManager.setAndAllowWhileIdle(
-                AlarmManager.RTC_WAKEUP,
-                targetTriggerTime,
-                pendingIntent
+        for ((subId, offset, message) in reminders) {
+            val reminderTime = warrantyEndDate - offset
+
+            // On ne planifie l'alarme que si l'échéance est future ou si on est proche mais pas encore expiré
+            if (warrantyEndDate > now && reminderTime > now) {
+                val intent = Intent(app, WarrantyReminderReceiver::class.java).apply {
+                    putExtra(WarrantyReminderReceiver.EXTRA_RECEIPT_TITLE, title)
+                    putExtra(WarrantyReminderReceiver.EXTRA_RECEIPT_ID, receiptId)
+                    putExtra(WarrantyReminderReceiver.EXTRA_REMINDER_MESSAGE, message)
+                }
+
+                // Génère un code de requête unique combinant le receiptId hashcode et le subId
+                val uniqueRequestCode = (receiptId.hashCode() * 31) + subId
+
+                val pendingIntent = PendingIntent.getBroadcast(
+                    app,
+                    uniqueRequestCode,
+                    intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+
+                try {
+                    alarmManager.setAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        reminderTime,
+                        pendingIntent
+                    )
+                    Log.d("ReceiptViewModel", "Rappel #$subId configuré avec succès pour $title au timestamp: $reminderTime ($message)")
+                } catch (e: SecurityException) {
+                    Log.e("ReceiptViewModel", "Erreur lors de la planification de l'exact alarm #$subId", e)
+                }
+            }
+        }
+
+        // Compléter par un rappel immédiat ou rapide si la garantie expire très bientôt et qu'aucune alarme n'a pu se programmer
+        val oneDayInMs = 24L * 60 * 60 * 1000
+        if (warrantyEndDate > now && (warrantyEndDate - now) < (30 * oneDayInMs)) {
+            // Expire dans moins de 30 jours, on programme un rappel rapide dans 5 secondes pour avertir que la date est très proche
+            val intent = Intent(app, WarrantyReminderReceiver::class.java).apply {
+                putExtra(WarrantyReminderReceiver.EXTRA_RECEIPT_TITLE, title)
+                putExtra(WarrantyReminderReceiver.EXTRA_RECEIPT_ID, receiptId)
+                putExtra(WarrantyReminderReceiver.EXTRA_REMINDER_MESSAGE, "Alerte de proximité : la garantie pour \"$title\" expire très bientôt, dans moins d'un mois !")
+            }
+            val quickPendingIntent = PendingIntent.getBroadcast(
+                app,
+                (receiptId.hashCode() * 31) + 99,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            Log.d("ReceiptViewModel", "Alarme configurée avec succès pour $title au timestamp: $targetTriggerTime")
-        } catch (e: SecurityException) {
-            Log.e("ReceiptViewModel", "Erreur lors de la planification de l'exact alarm", e)
+            try {
+                alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, now + 5000, quickPendingIntent)
+            } catch (e: SecurityException) {
+                Log.e("ReceiptViewModel", "Erreur rappel de proximité", e)
+            }
         }
     }
 
     /**
-     * Annule une alarme configurée pour un ticket spécifique.
+     * Annule toutes les alarmes configurées pour un ticket spécifique.
      */
     private fun cancelWarrantyReminder(receiptId: Long) {
         val alarmManager = app.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
         val intent = Intent(app, WarrantyReminderReceiver::class.java)
-        val pendingIntent = PendingIntent.getBroadcast(
-            app,
-            receiptId.hashCode(),
-            intent,
-            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
-        )
-        if (pendingIntent != null) {
-            alarmManager.cancel(pendingIntent)
-            pendingIntent.cancel()
+
+        // Annuler les 4 rappels par défaut
+        for (subId in listOf(1, 2, 3, 4, 99)) {
+            val uniqueRequestCode = (receiptId.hashCode() * 31) + subId
+            val pendingIntent = PendingIntent.getBroadcast(
+                app,
+                uniqueRequestCode,
+                intent,
+                PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+            )
+            if (pendingIntent != null) {
+                alarmManager.cancel(pendingIntent)
+                pendingIntent.cancel()
+            }
         }
     }
 }

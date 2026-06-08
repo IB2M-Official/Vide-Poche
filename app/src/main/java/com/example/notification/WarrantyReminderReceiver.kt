@@ -18,11 +18,13 @@ class WarrantyReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val title = intent.getStringExtra(EXTRA_RECEIPT_TITLE) ?: "Produit"
         val receiptId = intent.getLongExtra(EXTRA_RECEIPT_ID, -1L)
+        val message = intent.getStringExtra(EXTRA_REMINDER_MESSAGE) 
+            ?: "Attention : la garantie pour $title expire bientôt (dans moins de 30 jours) !"
 
-        showNotification(context, title, receiptId)
+        showNotification(context, title, receiptId, message)
     }
 
-    private fun showNotification(context: Context, productTitle: String, receiptId: Long) {
+    private fun showNotification(context: Context, productTitle: String, receiptId: Long, message: String) {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         // Créer le canal de notification à partir d'Android O
@@ -52,7 +54,7 @@ class WarrantyReminderReceiver : BroadcastReceiver() {
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info) // Utilise un icône système par défaut robuste
             .setContentTitle("Date limite de garantie proche")
-            .setContentText("Attention : la garantie pour $productTitle expire bientôt (dans moins de 30 jours) !")
+            .setContentText(message)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
@@ -65,5 +67,6 @@ class WarrantyReminderReceiver : BroadcastReceiver() {
         const val CHANNEL_ID = "warranty_expiry_channel"
         const val EXTRA_RECEIPT_TITLE = "extra_receipt_title"
         const val EXTRA_RECEIPT_ID = "extra_receipt_id"
+        const val EXTRA_REMINDER_MESSAGE = "extra_reminder_message"
     }
 }

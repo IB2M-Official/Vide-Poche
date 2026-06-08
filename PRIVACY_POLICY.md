@@ -59,4 +59,4 @@ Puisque toutes vos données sont stockées localement sur votre appareil mobile 
 
 ## 7. Contact
 Pour toute question relative à cette politique de confidentialité ou au fonctionnement de l'appareil, vous pouvez contacter l'éditeur à l'adresse e-mail suivante :
-* **E-mail :** muslimeverywherecontact@gmail.com
+* **E-mail :** lorahalima9@gmail.com

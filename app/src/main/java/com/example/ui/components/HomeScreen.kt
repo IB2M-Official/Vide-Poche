@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -53,6 +54,7 @@ fun HomeScreen(
     onNavigateToCamera: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     val receipts by viewModel.uiReceipts.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val selectedFilter by viewModel.selectedFilter.collectAsState()
@@ -60,8 +62,19 @@ fun HomeScreen(
 
     var receiptToDelete by remember { mutableStateOf<Receipt?>(null) }
     var receiptDetailToShow by remember { mutableStateOf<Receipt?>(null) }
+    var showTutorial by remember { mutableStateOf(false) }
 
     val categoriesList = listOf("Tous", "Divers", "Électronique", "Électroménager", "Mode", "Alimentation")
+
+    // Détection automatique du tout premier lancement pour afficher le tutoriel interactif
+    LaunchedEffect(Unit) {
+        val prefs = context.getSharedPreferences("vide_poche_prefs", android.content.Context.MODE_PRIVATE)
+        val isFirstRun = prefs.getBoolean("is_first_run2", true)
+        if (isFirstRun) {
+            showTutorial = true
+            prefs.edit().putBoolean("is_first_run2", false).apply()
+        }
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -81,6 +94,18 @@ fun HomeScreen(
                             text = "Garanties locales & sécurisées",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = { showTutorial = true },
+                        modifier = Modifier.testTag("help_tutorial_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.HelpOutline,
+                            contentDescription = "Ouvrir le guide d'utilisation",
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     }
                 },
@@ -250,6 +275,17 @@ fun HomeScreen(
         ReceiptDetailDialog(
             receipt = receiptDetailToShow!!,
             onDismiss = { receiptDetailToShow = null }
+        )
+    }
+
+    // Modal du Guide / Tutoriel interactif de l'application
+    if (showTutorial) {
+        TutorialDialog(
+            onDismiss = { showTutorial = false },
+            onLaunchCamera = {
+                showTutorial = false
+                onNavigateToCamera()
+            }
         )
     }
 }
@@ -502,6 +538,7 @@ fun ReceiptDetailDialog(
     // Liste des images rattachées
     val paths = receipt.imagePathsList
     var activeImageIndex by remember { mutableStateOf(0) }
+    var showFullscreenPath by remember { mutableStateOf<String?>(null) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -578,7 +615,10 @@ fun ReceiptDetailDialog(
                                     contentDescription = "Photo ${activeImageIndex + 1} du ticket de caisse",
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .background(Color.DarkGray),
+                                        .background(Color.DarkGray)
+                                        .clickable {
+                                            showFullscreenPath = paths[activeImageIndex]
+                                        },
                                     contentScale = ContentScale.Fit
                                 )
 
@@ -704,5 +744,13 @@ fun ReceiptDetailDialog(
                 }
             }
         }
+    }
+
+    // Dialogue pour afficher l'image sélectionnée en grand écran
+    if (showFullscreenPath != null) {
+        FullscreenImageDialog(
+            imagePath = showFullscreenPath!!,
+            onDismiss = { showFullscreenPath = null }
+        )
     }
 }

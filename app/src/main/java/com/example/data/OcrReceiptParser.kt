@@ -8,13 +8,17 @@ import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.File
+import java.util.Calendar
+import java.util.Date
 import kotlin.coroutines.resume
 
 data class ParsedReceiptInfo(
     val title: String,
     val warrantyMonths: Int,
+    val isWarrantyDetected: Boolean,
     val barcode: String?,
     val category: String,
+    val purchaseDate: Long?,
     val notes: String?
 )
 
@@ -67,10 +71,44 @@ object OcrReceiptParser {
     private fun defaultInfo() = ParsedReceiptInfo(
         title = "",
         warrantyMonths = 24, // 2 ans par défaut
+        isWarrantyDetected = false,
         barcode = null,
         category = "Divers",
+        purchaseDate = null,
         notes = null
     )
+
+    /**
+     * Tente d'extraire la date d'achat (format dd/MM/yyyy, dd-MM-yyyy, dd.MM.yyyy ou versions 2 chiffres année)
+     */
+    private fun extractPurchaseDate(text: String): Long? {
+        val dateRegex = """\b(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})\b""".toRegex()
+        val match = dateRegex.find(text) ?: return null
+        return try {
+            val day = match.groupValues[1].toInt()
+            val month = match.groupValues[2].toInt() - 1 // Calendar mois commence à 0
+            var year = match.groupValues[3].toInt()
+            if (year < 100) {
+                year += 2000 // ex: 26 -> 2026
+            }
+
+            if (day in 1..31 && month in 0..11 && year in 2000..2050) {
+                val cal = Calendar.getInstance()
+                cal.set(Calendar.YEAR, year)
+                cal.set(Calendar.MONTH, month)
+                cal.set(Calendar.DAY_OF_MONTH, day)
+                cal.set(Calendar.HOUR_OF_DAY, 12)
+                cal.set(Calendar.MINUTE, 0)
+                cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.MILLISECOND, 0)
+                cal.timeInMillis
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     /**
      * Analyse le texte brut extrait d'un ticket de caisse.
@@ -102,7 +140,6 @@ object OcrReceiptParser {
         }
 
         // 2. Recherche du nom du produit / article
-        // Souvent c'est une ligne qui mentionne un nom de produit courant ou le premier gros mot sur le haut
         var article = ""
         val ignoredWords = listOf("ticket", "tva", "caisse", "carte", "tel", "fax", "total", "ht", "ttc", "paiement", "banque", "somme", "euro", "facture", "remise")
         for (line in lines) {
@@ -123,12 +160,15 @@ object OcrReceiptParser {
             else -> "Nouveau Ticket scanné"
         }
 
-        // 3. Recherche de la durée de garantie (ans / mois)
-        var warrantyMonths = 24 // 2 ans par défaut (loi de conformité européenne standard)
+        // 3. Recherche de la date d'achat d'après OCR
+        val purchaseDate = extractPurchaseDate(text)
+
+        // 4. Recherche de la durée de garantie (ans / mois)
+        var warrantyMonths = 24 // 2 ans par défaut
+        var isWarrantyDetected = false
         
         // Patterns de recherche de garantie
         val textLower = text.lowercase()
-        // Regex pour capturer un nombre suivi de "an" ou "ans" ou "mois" ou "warranty" ou "garantie"
         val warrantyRegex = """(\d+)\s*(ans?|mois|year|years|months|garantie|warranty)""".toRegex()
         val matches = warrantyRegex.findAll(textLower)
         for (match in matches) {
@@ -137,15 +177,23 @@ object OcrReceiptParser {
             
             if (unit.startsWith("an") || unit.startsWith("year")) {
                 warrantyMonths = numValue * 12
+                isWarrantyDetected = true
                 break
             } else if (unit.startsWith("moi") || unit.startsWith("month")) {
                 warrantyMonths = numValue
+                isWarrantyDetected = true
                 break
             }
         }
 
-        // 4. Reconstitution du code barre (recherche EAN-13 ou EAN-8)
-        // Les codes-barres standards EAN-13 ont exactement 13 chiffres. Les UPC ont 12 chiffres. EAN-8 ont 8 chiffres.
+        // Si le mot "garantie" apparaît mais qu'aucune durée n'est détectée directement après, on suppose tout de même la conformité
+        if (!isWarrantyDetected) {
+            if (textLower.contains("garantie constructeur") || textLower.contains("garantie de conformite") || textLower.contains("garantie 2 ans")) {
+                isWarrantyDetected = true
+            }
+        }
+
+        // 5. Reconstitution du code barre (recherche EAN-13 ou EAN-8)
         val digits13Regex = """\b\d{13}\b""".toRegex()
         val digits12Regex = """\b\d{12}\b""".toRegex()
         val digits8Regex = """\b\d{8}\b""".toRegex()
@@ -154,7 +202,7 @@ object OcrReceiptParser {
             ?: digits12Regex.find(text)?.value 
             ?: digits8Regex.find(text)?.value
 
-        // 5. Recherche de catégorie d'après le texte
+        // 6. Recherche de catégorie d'après le texte
         var category = "Divers"
         for ((catName, keywords) in CATEGORIES) {
             if (keywords.any { textLower.contains(it) }) {
@@ -163,13 +211,24 @@ object OcrReceiptParser {
             }
         }
 
-        val notes = if (barcode != null) "Code-barres détecté d'après OCR: $barcode" else "Scanné automatiquement via OCR."
+        val notes = StringBuilder().apply {
+            if (isWarrantyDetected) {
+                append("Garantie détectée via OCR : ${warrantyMonths / 12} an(s).")
+            } else {
+                append("Garantie de 2 ans supposée d'après la réglementation légale en France.")
+            }
+            if (barcode != null) {
+                append("\nCode-barres détecté d'après OCR: $barcode")
+            }
+        }.toString()
 
         return ParsedReceiptInfo(
             title = finalTitle,
             warrantyMonths = warrantyMonths,
+            isWarrantyDetected = isWarrantyDetected,
             barcode = barcode,
             category = category,
+            purchaseDate = purchaseDate,
             notes = notes
         )
     }
