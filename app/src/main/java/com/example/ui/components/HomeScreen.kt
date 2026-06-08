@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -43,7 +44,7 @@ import java.util.*
 import java.util.concurrent.TimeUnit
 
 /**
- * Écran principal présentant la liste des garanties, le filtrage et la recherche.
+ * Écran principal présentant la liste des garanties, le filtrage par statut et catégorie, et la recherche par texte.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,9 +56,12 @@ fun HomeScreen(
     val receipts by viewModel.uiReceipts.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val selectedFilter by viewModel.selectedFilter.collectAsState()
+    val selectedCategory by viewModel.selectedCategory.collectAsState()
 
     var receiptToDelete by remember { mutableStateOf<Receipt?>(null) }
     var receiptDetailToShow by remember { mutableStateOf<Receipt?>(null) }
+
+    val categoriesList = listOf("Tous", "Divers", "Électronique", "Électroménager", "Mode", "Alimentation")
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -107,11 +111,11 @@ fun HomeScreen(
                 .padding(innerPadding)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            // Zone de recherche (Barre de recherche)
+            // Zone de recherche textuelle
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { viewModel.setSearchQuery(it) },
-                placeholder = { Text("Rechercher un magasin ou produit...") },
+                placeholder = { Text("Rechercher par titre, note, code-barres...") },
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Default.Search,
@@ -140,17 +144,17 @@ fun HomeScreen(
                 colors = OutlinedTextFieldDefaults.colors()
             )
 
-            // Puces de filtrage (Filter Chips)
+            // Puces de filtrage (Filter Chips) - Par statut temporel
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 FilterChip(
                     selected = selectedFilter == FilterType.ALL,
                     onClick = { viewModel.setFilter(FilterType.ALL) },
-                    label = { Text("Tous") },
+                    label = { Text("Tous les statuts") },
                     modifier = Modifier.testTag("filter_chip_all")
                 )
                 FilterChip(
@@ -167,7 +171,25 @@ fun HomeScreen(
                 )
             }
 
-            // Liste de tickets
+            // Puces de filtrage (LazyRow Scrollable) - Par catégorie rattachée (Nouveauté)
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                items(categoriesList) { cat ->
+                    FilterChip(
+                        selected = selectedCategory == cat,
+                        onClick = { viewModel.setCategoryFilter(cat) },
+                        label = { Text(cat) },
+                        modifier = Modifier.testTag("filter_chip_category_$cat")
+                    )
+                }
+            }
+
+            // Liste de tickets de caisse rattachés
             if (receipts.isEmpty()) {
                 EmptyStateView(
                     searchQuery = searchQuery,
@@ -179,8 +201,8 @@ fun HomeScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .testTag("receipts_list"),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(receipts, key = { it.id }) { receipt ->
                         ReceiptItemCard(
@@ -199,7 +221,7 @@ fun HomeScreen(
         AlertDialog(
             onDismissRequest = { receiptToDelete = null },
             title = { Text("Supprimer le ticket ?") },
-            text = { Text("Voulez-vous vraiment supprimer définitivement le ticket \"${receiptToDelete?.title}\" ? Cette opération effacera également l'image correspondante.") },
+            text = { Text("Voulez-vous vraiment supprimer définitivement le ticket \"${receiptToDelete?.title}\" ? Cette opération effacera également ses images.") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -223,7 +245,7 @@ fun HomeScreen(
         )
     }
 
-    // Modal de détail du ticket de caisse
+    // Modal de détail complet du ticket de caisse (multi-photos + code barres reconstitué)
     if (receiptDetailToShow != null) {
         ReceiptDetailDialog(
             receipt = receiptDetailToShow!!,
@@ -233,7 +255,7 @@ fun HomeScreen(
 }
 
 /**
- * Carte de reçu individuelle stylisée avec indicateurs de statut colorés.
+ * Carte de reçu individuelle stylisée avec indicateurs de statut et catégories.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -276,26 +298,28 @@ fun ReceiptItemCard(
             )
             .testTag("receipt_card_${receipt.id}"),
         shape = RoundedCornerShape(16.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
         colors = CardDefaults.outlinedCardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
         )
     ) {
         Row(
             modifier = Modifier
-                .padding(14.dp)
+                .padding(12.dp)
                 .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Miniature du ticket de caisse stocké localement
+            // Miniature du ticket de caisse local (Première photo s'il y en a plusieurs)
             Box(
                 modifier = Modifier
-                    .size(52.dp) // Cadrage plus dense et moderne (52dp au lieu de 80dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(12.dp))
                     .background(MaterialTheme.colorScheme.secondaryContainer),
                 contentAlignment = Alignment.Center
             ) {
-                val imageFile = remember(receipt.imagePath) { File(receipt.imagePath) }
+                val paths = receipt.imagePathsList
+                val firstPath = paths.firstOrNull() ?: ""
+                val imageFile = remember(firstPath) { File(firstPath) }
                 if (imageFile.exists()) {
                     AsyncImage(
                         model = imageFile,
@@ -323,17 +347,26 @@ fun ReceiptItemCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.Top
                 ) {
-                    Text(
-                        text = receipt.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f).padding(end = 6.dp)
-                    )
+                    Column(modifier = Modifier.weight(1f).padding(end = 6.dp)) {
+                        Text(
+                            text = receipt.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        // Affichage de la catégorie sous forme de badge discret
+                        SuggestionChip(
+                            onClick = {},
+                            label = { Text(receipt.category, fontSize = 10.sp) },
+                            modifier = Modifier
+                                .height(22.dp)
+                                .padding(vertical = 0.dp)
+                        )
+                    }
 
-                    // Badge indicateur de statut compact style High Density
+                    // Badge indicateur de statut restant
                     Surface(
                         shape = RoundedCornerShape(100.dp),
                         color = statusColor.copy(alpha = 0.12f),
@@ -346,15 +379,21 @@ fun ReceiptItemCard(
                                 letterSpacing = 0.5.sp
                             ),
                             color = statusColor,
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(4.dp))
+
+                val subtext = if (!receipt.notes.isNullOrBlank()) {
+                    receipt.notes
+                } else {
+                    "Achat le ${dateFormat.format(Date(receipt.purchaseDate))}"
+                }
 
                 Text(
-                    text = "${receipt.notes ?: "Détails"} • Expire le ${dateFormat.format(Date(receipt.warrantyEndDate))}",
+                    text = "$subtext • Expire le ${dateFormat.format(Date(receipt.warrantyEndDate))}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -362,9 +401,9 @@ fun ReceiptItemCard(
                 )
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(4.dp))
 
-            // Bouton supprimer direct (48dp large pour accessibilité)
+            // Bouton supprimer direct (48dp pour accessibilité)
             IconButton(
                 onClick = onDeleteClick,
                 modifier = Modifier
@@ -428,7 +467,7 @@ fun EmptyStateView(
                 text = if (searchQuery.isNotEmpty()) {
                     "Essayez de modifier votre recherche."
                 } else {
-                    "Prenez un ticket de caisse en photo et définissez sa garantie pour le sécuriser."
+                    "Prenez vos tickets en photo pour sécuriser et catégoriser toutes vos garanties !"
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -451,7 +490,7 @@ fun EmptyStateView(
 }
 
 /**
- * Boîte de dialogue détaillée affichant la photo plein format et toutes les informations du ticket.
+ * Boîte de dialogue détaillée affichant la photo plein format (ou visionneuse multi-photos) et toutes les informations du ticket.
  */
 @Composable
 fun ReceiptDetailDialog(
@@ -460,6 +499,10 @@ fun ReceiptDetailDialog(
 ) {
     val dateFormat = remember { SimpleDateFormat("dd MMMM yyyy", Locale.FRANCE) }
 
+    // Liste des images rattachées
+    val paths = receipt.imagePathsList
+    var activeImageIndex by remember { mutableStateOf(0) }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -467,7 +510,7 @@ fun ReceiptDetailDialog(
         Surface(
             modifier = Modifier
                 .fillMaxWidth(0.95f)
-                .fillMaxHeight(0.85f)
+                .fillMaxHeight(0.88f)
                 .testTag("receipt_detail_dialog"),
             shape = RoundedCornerShape(24.dp),
             color = MaterialTheme.colorScheme.surface,
@@ -478,20 +521,27 @@ fun ReceiptDetailDialog(
                     .fillMaxSize()
                     .padding(20.dp)
             ) {
-                // En-tête
+                // En-tête du détail
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = receipt.title,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = receipt.title,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Catégorie : ${receipt.category}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                     IconButton(
                         onClick = onDismiss,
                         modifier = Modifier
@@ -505,7 +555,7 @@ fun ReceiptDetailDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // Contenu scrollable
                 Column(
@@ -513,63 +563,112 @@ fun ReceiptDetailDialog(
                         .weight(1f)
                         .verticalScroll(androidx.compose.foundation.rememberScrollState())
                 ) {
-                    // Photo zoomée du ticket de caisse local
-                    val file = remember(receipt.imagePath) { File(receipt.imagePath) }
-                    if (file.exists()) {
+                    // Visionneuse de photos du ticket (multi-photos) rattachées
+                    if (paths.isNotEmpty()) {
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(320.dp),
+                                .height(300.dp),
                             shape = RoundedCornerShape(16.dp),
                             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                         ) {
-                            AsyncImage(
-                                model = file,
-                                contentDescription = "Photo intégrale du ticket de caisse",
-                                modifier = Modifier.fillMaxSize().background(Color.DarkGray),
-                                contentScale = ContentScale.Fit // Permet de voir le ticket en entier sans rognage
-                            )
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                AsyncImage(
+                                    model = File(paths[activeImageIndex]),
+                                    contentDescription = "Photo ${activeImageIndex + 1} du ticket de caisse",
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color.DarkGray),
+                                    contentScale = ContentScale.Fit
+                                )
+
+                                // Petits points de navigation si > 1 photos
+                                if (paths.size > 1) {
+                                    Row(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomCenter)
+                                            .padding(12.dp)
+                                            .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        paths.forEachIndexed { index, _ ->
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(8.dp)
+                                                    .clip(CircleShape)
+                                                    .background(if (index == activeImageIndex) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.5f))
+                                                    .clickable { activeImageIndex = index }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     } else {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(200.dp)
+                                .height(160.dp)
                                 .clip(RoundedCornerShape(16.dp))
                                 .background(MaterialTheme.colorScheme.surfaceVariant),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                "Image non disponible",
+                                "Aucune image rattachée",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                    // Dates
+                    // Date d'achat
                     ListItem(
                         headlineContent = { Text("Date d'achat") },
                         supportingContent = { Text(dateFormat.format(Date(receipt.purchaseDate))) },
                         leadingContent = {
-                            Icon(Icons.Default.CalendarToday, contentDescription = null)
+                            Icon(Icons.Default.CalendarToday, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         }
                     )
 
+                    // Fin de garantie
                     ListItem(
-                        headlineContent = { Text("Expiration de la garantie") },
+                        headlineContent = { Text("Fin de la garantie") },
                         supportingContent = { Text(dateFormat.format(Date(receipt.warrantyEndDate))) },
                         leadingContent = {
-                            Icon(Icons.Default.Timer, contentDescription = null)
+                            Icon(Icons.Default.Timer, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         }
                     )
 
-                    // Notes
+                    // Catégorie
+                    ListItem(
+                        headlineContent = { Text("Groupe / Catégorie") },
+                        supportingContent = { Text(receipt.category) },
+                        leadingContent = {
+                            val catIcon = when (receipt.category) {
+                                "Électronique" -> Icons.Default.Tv
+                                "Électroménager" -> Icons.Default.Build
+                                "Mode" -> Icons.Default.ShoppingBag
+                                "Alimentation" -> Icons.Default.ShoppingCart
+                                else -> Icons.Default.Category
+                            }
+                            Icon(catIcon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        }
+                    )
+
+                    // Code-barres reconstitué
+                    if (!receipt.barcode.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        BarcodeView(barcode = receipt.barcode)
+                    }
+
+                    // Notes rattachées
                     if (!receipt.notes.isNullOrBlank()) {
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "Notes",
+                            text = "Notes & Détails",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
@@ -593,7 +692,7 @@ fun ReceiptDetailDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Bouton OK de validation
+                // Bouton OK de fermeture
                 Button(
                     onClick = onDismiss,
                     modifier = Modifier
@@ -601,7 +700,7 @@ fun ReceiptDetailDialog(
                         .height(50.dp)
                         .testTag("detail_ok_button")
                 ) {
-                    Text("Ok")
+                    Text("OK", fontWeight = FontWeight.Bold)
                 }
             }
         }

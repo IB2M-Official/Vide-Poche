@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Politique de Confidentialité — Vide-Poche</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f9f9f9;
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #2980b9;
+            margin-top: 30px;
+        }
+        h3 {
+            color: #16a085;
+        }
+        p, li {
+            font-size: 16px;
+        }
+        code {
+            background-color: #f1f1f1;
+            padding: 2px 5px;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        hr {
+            border: 0;
+            height: 1px;
+            background: #ddd;
+            margin: 30px 0;
+        }
+        .footer {
+            margin-top: 50px;
+            font-size: 14px;
+            color: #7f8c8d;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Politique de Confidentialité — Application "Vide-Poche"</h1>
+    <p><em>Dernière mise à jour : 8 juin 2026</em></p>
+
+    <p>La présente politique de confidentialité a pour but de vous informer sur la manière dont l'application mobile <strong>Vide-Poche</strong> (ci-après « l'Application »), identifiée sous le package <code>com.aistudio.videpoche.rvkmzp</code>, traite vos données personnelles.</p>
+
+    <p>Nous attachons une importance primordiale au respect de votre vie privée. C'est pourquoi l'Application a été conçue selon un paradigme <strong>offline-first et local par défaut</strong>.</p>
+
+    <hr>
+
+    <h2>1. Responsable du traitement</h2>
+    <p>L'Application est un outil de gestion personnelle local. Aucun serveur externe n’est utilisé pour stocker vos données. Toutes les opérations de traitement de l'information s’effectuent directement sur votre appareil Android.</p>
+
+    <h2>2. Collecte et traitement des données</h2>
+    <p>L'Application ne collecte, ne transmet, ne vend ni ne partage <strong>aucune donnée personnelle, directe ou indirecte</strong>, à des tiers ou à des serveurs tiers.</p>
+
+    <h3>a. Stockage Local des Données (Room SQLite)</h3>
+    <ul>
+        <li><strong>Quoi :</strong> Les titres des tickets de caisse, les dates d'achat, les durées de garantie, les codes-barres reconstitués, les catégories, ainsi que les notes personnelles que vous saisissez.</li>
+        <li><strong>Où :</strong> Ces informations sont enregistrées localement au sein d'une base de données SQLite sécurisée (via la bibliothèque Room) stockée uniquement dans l'espace de stockage privé de l'Application sur votre smartphone.</li>
+        <li><strong>Accès :</strong> Aucune entité externe ou tierce n'y a accès.</li>
+    </ul>
+
+    <h3>b. Photos et Documents (Stockage Interne)</h3>
+    <ul>
+        <li><strong>Quoi :</strong> Les clichés de vos tickets de caisse pris via l'appareil photo de l’Application.</li>
+        <li><strong>Où :</strong> Ces images sont copiées et enregistrées de manière sécurisée dans le stockage interne privé de l'Application (<code>context.filesDir</code>).</li>
+        <li><strong>Durée de conservation :</strong> Ces fichiers sont stockés localement et sont définitivement supprimés physiquement de votre appareil dès lors que vous supprimez le ticket correspondant au sein de l’Application ou que vous désinstallez l’Application.</li>
+    </ul>
+
+    <h3>c. Reconnaissance Optique de Caractères (OCR) locale</h3>
+    <ul>
+        <li><strong>Quoi :</strong> L'analyse automatique du texte présent sur vos tickets de caisse (détection automatique du nom du magasin, de la durée de garantie, de la catégorie et du code-barres).</li>
+        <li><strong>Comment :</strong> Ce traitement utilise le SDK Google ML Kit (Text Recognition) de manière <strong>100 % locale et hors ligne</strong> sur votre téléphone. Aucune image ni aucun texte extrait n'est envoyé sur internet ou à Google pour ce traitement.</li>
+    </ul>
+
+    <h2>3. Autorisations requises (Permissions Android)</h2>
+    <p>Pour fonctionner de manière optimale, l'Application demande l'accès à certaines fonctionnalités de votre appareil :</p>
+    <ul>
+        <li><strong>Appareil photo (Camera) :</strong> Indispensable pour capturer les photos de vos tickets de caisse directement dans l'Application.</li>
+        <li><strong>Notification (Notifications Push / Alarmes) :</strong> Utilisé pour configurer des alertes locales afin de vous prévenir de l'expiration imminente de vos garanties d'achats. Ces notifications sont générées localement par le système Android, sans passer par un serveur de push externe.</li>
+    </ul>
+
+    <h2>4. Partage et transfert des données</h2>
+    <p>Aucune donnée collectée par l'Application n'est transmise d'aucune façon. Vos données restent exclusivement sur votre appareil.</p>
+
+    <h2>5. Sécurité</h2>
+    <p>Vos données sont protégées par les mécanismes de cloisonnement natifs du système d'exploitation Android (sandbox). Nous vous recommandons de sécuriser l'accès à votre appareil (verrouillage par schéma, mot de passe ou biométrie) pour préserver la confidentialité physique de vos tickets.</p>
+
+    <h2>6. Vos Droits (RGPD)</h2>
+    <p>Puisque toutes vos données sont stockées localement sur votre appareil mobile :</p>
+    <ul>
+        <li>Vous disposez d'un droit d'accès, de rectification et de limitation absolu en modifiant ou en filtrant directement vos tickets dans l'Application.</li>
+        <li>Vous pouvez exercer votre <strong>droit à l’effacement (droit à l'oubli)</strong> à tout moment en supprimant manuellement vos tickets au sein de l’Application, ou simplement en désinstallant l'Application de votre téléphone. Cela détruira instantanément et définitivement l’intégralité de la base de données SQL locale et toutes les photos rattachées.</li>
+    </ul>
+
+    <h2>7. Coordonnées de contact</h2>
+    <p>Pour toute question relative à cette politique de confidentialité ou au fonctionnement de l'appareil, vous pouvez contacter l'éditeur à l'adresse suivante :</p>
+    <ul>
+        <li><strong>E-mail :</strong> lorahalima9@gmail.com</li>
+    </ul>
+
+    <div class="footer">
+        <p>Garanties locales, sécurisées & respectueuses de votre vie privée avec Vide-Poche.</p>
+    </div>
+
+</body>
+</html>

@@ -8,7 +8,7 @@ import androidx.room.RoomDatabase
 /**
  * Base de données Room principale de l'application Vide-Poche.
  */
-@Database(entities = [Receipt::class], version = 1, exportSchema = false)
+@Database(entities = [Receipt::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun receiptDao(): ReceiptDao
@@ -23,7 +23,9 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "vide_poche_database"
-                ).build()
+                )
+                .fallbackToDestructiveMigration()
+                .build()
                 INSTANCE = instance
                 instance
             }

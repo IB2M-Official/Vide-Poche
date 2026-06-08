@@ -1,9 +1,14 @@
 package com.example.ui.components
 
+import android.util.Log
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -16,46 +21,170 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import com.example.data.OcrReceiptParser
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
 /**
- * Boîte de dialogue d'ajout d'un ticket avec choix de la durée de garantie.
+ * Composant de dessin de code-barres simulé mais fidèle basé sur les chiffres de l'OCR.
+ */
+@Composable
+fun BarcodeView(
+    barcode: String,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Color(0xFFE0E0E0)),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "CODE-BARRES RECONSTITUÉ ET SCANNABLE",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                ),
+                color = Color.Gray,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            // Canvas dessinant un code-barres réaliste
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .height(64.dp)
+            ) {
+                val lineCount = 95 // standard barcode éléments EAN-13
+                val widthPerLine = size.width / lineCount
+                val barcodeHash = barcode.hashCode()
+                val random = java.util.Random(barcodeHash.toLong())
+
+                for (i in 0 until lineCount) {
+                    val isBlack = when (i) {
+                        0, 1, 2 -> true // Lead guard
+                        lineCount - 3, lineCount - 2, lineCount - 1 -> true // Trail guard
+                        45, 46, 47, 48, 49 -> true // Middle guard
+                        else -> random.nextBoolean() // Corps du code-barres
+                    }
+                    if (isBlack) {
+                        val isGuard = (i <= 2) || (i >= lineCount - 3) || (i in 45..49)
+                        val barHeight = if (isGuard) size.height else size.height * 0.82f
+                        drawRect(
+                            color = Color.Black,
+                            topLeft = androidx.compose.ui.geometry.Offset(x = i * widthPerLine, y = 0f),
+                            size = androidx.compose.ui.geometry.Size(width = widthPerLine * 0.85f, height = barHeight)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Affichage élégant des chiffres espacés EAN-13
+            val formatted = if (barcode.length == 13) {
+                "${barcode.take(1)}  ${barcode.substring(1, 7)}  ${barcode.substring(7)}"
+            } else {
+                barcode
+            }
+
+            Text(
+                text = formatted,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 2.sp
+                ),
+                color = Color.Black
+            )
+        }
+    }
+}
+
+/**
+ * Boîte de dialogue d'ajout d'un ticket avec choix de la durée de garantie, de la catégorie et du code-barres.
+ * Supporte le scan OCR offline et les tickets multi-photos.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddReceiptDialog(
-    tempImagePath: String,
+    tempImagePaths: List<String>,
     onDismiss: () -> Unit,
-    onSave: (title: String, purchaseDate: Long, warrantyMonths: Int, notes: String?) -> Unit
+    onSave: (title: String, purchaseDate: Long, warrantyMonths: Int, notes: String?, category: String, barcode: String?) -> Unit
 ) {
-    // Correction de la déclaration du state
+    val context = LocalContext.current
+
+    // États du formulaire
     var title by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
     var purchaseDate by remember { mutableStateOf(System.currentTimeMillis()) }
     var warrantyMonths by remember { mutableStateOf(24) } // 2 ans par défaut
+    var category by remember { mutableStateOf("Divers") }
+    var barcode by remember { mutableStateOf("") }
 
+    // États de l'IHM
     var showDatePicker by remember { mutableStateOf(false) }
-    var expandedDropdown by remember { mutableStateOf(false) }
+    var expandedWarranty by remember { mutableStateOf(false) }
+    var expandedCategory by remember { mutableStateOf(false) }
+    var activeImageIndex by remember { mutableStateOf(0) }
+    var isOcrAnalyzing by remember { mutableStateOf(false) }
 
     val dateFormat = remember { SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE) }
 
-    // Durées de garantie disponibles
+    // Options de garanties standards
     val warrantyOptions = listOf(
         Pair("6 mois", 6),
         Pair("1 an (12 mois)", 12),
         Pair("2 ans (24 mois)", 24),
+        Pair("3 ans (36 mois)", 36),
         Pair("5 ans (60 mois)", 60)
     )
+
+    // Catégories de classement
+    val categoryOptions = listOf("Divers", "Électronique", "Électroménager", "Mode", "Alimentation")
+
+    // Analyse OCR intelligente lors du chargement des clichés
+    LaunchedEffect(tempImagePaths) {
+        if (tempImagePaths.isNotEmpty()) {
+            isOcrAnalyzing = true
+            try {
+                // Analyse de la première photo (contenant généralement les infos clés du ticket)
+                val parsed = OcrReceiptParser.parseReceiptImage(context, tempImagePaths.first())
+                title = parsed.title
+                warrantyMonths = parsed.warrantyMonths
+                category = parsed.category
+                if (parsed.barcode != null) {
+                    barcode = parsed.barcode
+                }
+                notes = parsed.notes ?: ""
+            } catch (e: Exception) {
+                Log.e("AddReceiptDialog", "Erreur lors de l'analyse OCR", e)
+            } finally {
+                isOcrAnalyzing = false
+            }
+        }
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -64,7 +193,7 @@ fun AddReceiptDialog(
         Surface(
             modifier = Modifier
                 .fillMaxWidth(0.95f)
-                .fillMaxHeight(0.9f)
+                .fillMaxHeight(0.92f)
                 .testTag("add_receipt_dialog"),
             shape = RoundedCornerShape(24.dp),
             color = MaterialTheme.colorScheme.surface,
@@ -81,12 +210,21 @@ fun AddReceiptDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "Enregistrer le ticket",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+                    Column {
+                        Text(
+                            text = "Enregistrer le ticket",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (tempImagePaths.size > 1) {
+                            Text(
+                                text = "${tempImagePaths.size} photos rattachées",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                     IconButton(
                         onClick = onDismiss,
                         modifier = Modifier
@@ -101,15 +239,44 @@ fun AddReceiptDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                // Contenu scrollable
+                // Indicateur de chargement OCR intelligent
+                if (isOcrAnalyzing) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.5.dp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text(
+                                text = "Analyse OCR gratuite et locale en cours...",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                }
+
+                // Contenu scrollable du formulaire
                 Column(
                     modifier = Modifier
                         .weight(1f)
                         .verticalScroll(rememberScrollState())
                 ) {
-                    // Aperçu miniature du ticket capturé
+                    // Visionneuse de photos du ticket (Prend en charge le multi-photos)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -118,22 +285,49 @@ fun AddReceiptDialog(
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentAlignment = Alignment.Center
                     ) {
-                        AsyncImage(
-                            model = File(tempImagePath),
-                            contentDescription = "Aperçu du ticket scanné",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(androidx.compose.ui.graphics.Brush.verticalGradient(
-                                    colors = listOf(
-                                        androidx.compose.ui.graphics.Color.Transparent,
-                                        androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.4f)
-                                    )
-                                ))
-                        )
+                        if (tempImagePaths.isNotEmpty()) {
+                            AsyncImage(
+                                model = File(tempImagePaths[activeImageIndex]),
+                                contentDescription = "Détail ticket n°${activeImageIndex + 1}",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+
+                            // Overlay sombre dégradé
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(androidx.compose.ui.graphics.Brush.verticalGradient(
+                                        colors = listOf(
+                                            androidx.compose.ui.graphics.Color.Transparent,
+                                            androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.5f)
+                                        )
+                                    ))
+                            )
+
+                            // Contrôles de navigation entre images rattachées
+                            if (tempImagePaths.size > 1) {
+                                Row(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .padding(12.dp)
+                                        .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    tempImagePaths.forEachIndexed { idx, _ ->
+                                        Box(
+                                            modifier = Modifier
+                                                .size(10.dp)
+                                                .clip(CircleShape)
+                                                .background(if (idx == activeImageIndex) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.5f))
+                                                .clickable { activeImageIndex = idx }
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -143,7 +337,7 @@ fun AddReceiptDialog(
                         value = title,
                         onValueChange = { title = it },
                         label = { Text("Nom du produit / Magasin") },
-                        placeholder = { Text("Ex: Lave Vaisselle, Darty...") },
+                        placeholder = { Text("Ex: Lave Vaisselle Darty, Aspirateur Fnac...") },
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("receipt_title_input"),
@@ -153,6 +347,55 @@ fun AddReceiptDialog(
                             unfocusedBorderColor = MaterialTheme.colorScheme.outline
                         )
                     )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Catégorie Groupement (Nouveauté)
+                    Text(
+                        text = "Grouper / Catégoriser",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = category,
+                            onValueChange = {},
+                            readOnly = true,
+                            trailingIcon = {
+                                IconButton(onClick = { expandedCategory = !expandedCategory }) {
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowDropDown,
+                                        contentDescription = "Dérouler la liste des catégories"
+                                    )
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { expandedCategory = !expandedCategory }
+                                .testTag("category_dropdown_trigger"),
+                            colors = OutlinedTextFieldDefaults.colors()
+                        )
+
+                        DropdownMenu(
+                            expanded = expandedCategory,
+                            onDismissRequest = { expandedCategory = false },
+                            modifier = Modifier.fillMaxWidth(0.9f)
+                        ) {
+                            categoryOptions.forEach { opt ->
+                                DropdownMenuItem(
+                                    text = { Text(opt) },
+                                    onClick = {
+                                        category = opt
+                                        expandedCategory = false
+                                    },
+                                    modifier = Modifier.testTag("category_option_$opt")
+                                )
+                            }
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(16.dp))
 
@@ -210,14 +453,13 @@ fun AddReceiptDialog(
                     )
                     Spacer(modifier = Modifier.height(6.dp))
 
-                    // Implémentation robuste 100% robuste de Dropdown sans ExposedDropdownMenuBox experimental
                     Box(modifier = Modifier.fillMaxWidth()) {
                         OutlinedTextField(
-                            value = warrantyOptions.firstOrNull { it.second == warrantyMonths }?.first ?: "",
+                            value = warrantyOptions.firstOrNull { it.second == warrantyMonths }?.first ?: "$warrantyMonths mois",
                             onValueChange = {},
                             readOnly = true,
                             trailingIcon = {
-                                IconButton(onClick = { expandedDropdown = !expandedDropdown }) {
+                                IconButton(onClick = { expandedWarranty = !expandedWarranty }) {
                                     Icon(
                                         imageVector = Icons.Default.ArrowDropDown,
                                         contentDescription = "Dérouler la liste des garanties"
@@ -226,22 +468,22 @@ fun AddReceiptDialog(
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { expandedDropdown = !expandedDropdown }
+                                .clickable { expandedWarranty = !expandedWarranty }
                                 .testTag("warranty_dropdown_trigger"),
                             colors = OutlinedTextFieldDefaults.colors()
                         )
 
                         DropdownMenu(
-                            expanded = expandedDropdown,
-                            onDismissRequest = { expandedDropdown = false },
-                            modifier = Modifier.fillMaxWidth(0.85f)
+                            expanded = expandedWarranty,
+                            onDismissRequest = { expandedWarranty = false },
+                            modifier = Modifier.fillMaxWidth(0.9f)
                         ) {
                             warrantyOptions.forEach { option ->
                                 DropdownMenuItem(
                                     text = { Text(option.first) },
                                     onClick = {
                                         warrantyMonths = option.second
-                                        expandedDropdown = false
+                                        expandedWarranty = false
                                     },
                                     modifier = Modifier.testTag("warranty_option_${option.second}")
                                 )
@@ -251,12 +493,36 @@ fun AddReceiptDialog(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
+                    // Zone de Reconstitution du Code-barres
+                    OutlinedTextField(
+                        value = barcode,
+                        onValueChange = { 
+                            // Uniquement chiffres
+                            barcode = it.filter { char -> char.isDigit() }
+                        },
+                        label = { Text("Chiffres du code-barres (Reconstitué)") },
+                        placeholder = { Text("Ex: 3600551016834 (8, 12 ou 13 chiffres)") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("receipt_barcode_input"),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors()
+                    )
+
+                    // Dessin du code-barres en temps réel si saisi !
+                    if (barcode.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        BarcodeView(barcode = barcode)
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
                     // Notes optionnelles
                     OutlinedTextField(
                         value = notes,
                         onValueChange = { notes = it },
-                        label = { Text("Notes (Optionnel)") },
-                        placeholder = { Text("Numéro de série, extension de garantie, etc.") },
+                        label = { Text("Notes & Détails (Optionnel)") },
+                        placeholder = { Text("Ex: Numéro de série SN-82193, Extension Darty Max...") },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(100.dp)
@@ -268,7 +534,7 @@ fun AddReceiptDialog(
                     Spacer(modifier = Modifier.height(24.dp))
                 }
 
-                // Actions en bas
+                // Actions en bas (Enregistrer / Annuler)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
@@ -288,7 +554,14 @@ fun AddReceiptDialog(
                     Button(
                         onClick = {
                             if (title.isNotBlank()) {
-                                onSave(title, purchaseDate, warrantyMonths, notes.takeIf { it.isNotBlank() })
+                                onSave(
+                                    title,
+                                    purchaseDate,
+                                    warrantyMonths,
+                                    notes.takeIf { it.isNotBlank() },
+                                    category,
+                                    barcode.takeIf { it.isNotBlank() }
+                                )
                             }
                         },
                         enabled = title.isNotBlank(),

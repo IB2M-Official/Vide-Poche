@@ -48,7 +48,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             MyApplicationTheme {
                 var currentScreen by remember { mutableStateOf(Screen.Home) }
-                var tempImagePathForDialog by remember { mutableStateOf<String?>(null) }
+                var tempImagePathsForDialog by remember { mutableStateOf<List<String>?>(null) }
                 val context = LocalContext.current
 
                 // Demande de permissions dynamique et moderne de CameraX et de Notifications Push (Android 13+)
@@ -101,27 +101,29 @@ class MainActivity : ComponentActivity() {
                             )
 
                             // Fenêtre de dialogue d'ajout : S'affiche immédiatement après la capture
-                            tempImagePathForDialog?.let { tempPath ->
+                            tempImagePathsForDialog?.let { tempPaths ->
                                 AddReceiptDialog(
-                                    tempImagePath = tempPath,
-                                    onDismiss = { tempImagePathForDialog = null },
-                                    onSave = { title, purchaseDate, warrantyMonths, notes ->
+                                    tempImagePaths = tempPaths,
+                                    onDismiss = { tempImagePathsForDialog = null },
+                                    onSave = { title, purchaseDate, warrantyMonths, notes, category, barcode ->
                                         viewModel.addReceipt(
                                             title = title,
                                             purchaseDate = purchaseDate,
                                             warrantyMonths = warrantyMonths,
                                             notes = notes,
-                                            tempImagePath = tempPath
+                                            tempImagePaths = tempPaths,
+                                            category = category,
+                                            barcode = barcode
                                         )
-                                        tempImagePathForDialog = null
+                                        tempImagePathsForDialog = null
                                     }
                                 )
                             }
                         }
                         Screen.Camera -> {
                             CameraCaptureScreen(
-                                onImageCaptured = { capturedPath ->
-                                    tempImagePathForDialog = capturedPath
+                                onImagesCaptured = { capturedPaths ->
+                                    tempImagePathsForDialog = capturedPaths
                                     currentScreen = Screen.Home
                                 },
                                 onClose = {

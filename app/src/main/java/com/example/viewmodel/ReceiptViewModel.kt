@@ -36,13 +36,17 @@ class ReceiptViewModel(
     private val repository: ReceiptRepository
 ) : AndroidViewModel(app) {
 
-    // Recherche de ticket par titre
+    // Recherche de ticket par titre, note, code-barres, catégorie, etc.
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
     // Filtre sélectionné (Tous, Actifs, Expirés)
     private val _selectedFilter = MutableStateFlow(FilterType.ALL)
     val selectedFilter: StateFlow<FilterType> = _selectedFilter.asStateFlow()
+
+    // Filtre de catégorie sélectionnée
+    private val _selectedCategory = MutableStateFlow("Tous")
+    val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
 
     // Liste complète triée récupérée de Room
     val allReceipts: Flow<List<Receipt>> = repository.getAllReceipts()
@@ -51,19 +55,31 @@ class ReceiptViewModel(
     val uiReceipts: StateFlow<List<Receipt>> = combine(
         allReceipts,
         searchQuery,
-        selectedFilter
-    ) { list, query, filter ->
+        selectedFilter,
+        selectedCategory
+    ) { list, query, filter, catFilter ->
         val filteredBySearch = if (query.isBlank()) {
             list
         } else {
-            list.filter { it.title.contains(query, ignoreCase = true) }
+            list.filter { 
+                it.title.contains(query, ignoreCase = true) ||
+                (it.notes != null && it.notes.contains(query, ignoreCase = true)) ||
+                (it.barcode != null && it.barcode.contains(query, ignoreCase = true)) ||
+                it.category.contains(query, ignoreCase = true)
+            }
+        }
+
+        val filteredByCategory = if (catFilter == "Tous") {
+            filteredBySearch
+        } else {
+            filteredBySearch.filter { it.category.equals(catFilter, ignoreCase = true) }
         }
 
         val now = System.currentTimeMillis()
         when (filter) {
-            FilterType.ALL -> filteredBySearch
-            FilterType.ACTIVE -> filteredBySearch.filter { it.warrantyEndDate > now }
-            FilterType.EXPIRED -> filteredBySearch.filter { it.warrantyEndDate <= now }
+            FilterType.ALL -> filteredByCategory
+            FilterType.ACTIVE -> filteredByCategory.filter { it.warrantyEndDate > now }
+            FilterType.EXPIRED -> filteredByCategory.filter { it.warrantyEndDate <= now }
         }
     }.stateIn(
         scope = viewModelScope,
@@ -79,28 +95,38 @@ class ReceiptViewModel(
         _selectedFilter.value = filter
     }
 
+    fun setCategoryFilter(category: String) {
+        _selectedCategory.value = category
+    }
+
     /**
      * Ajoute un reçu avec calcul automatique de la date de fin de garantie
-     * et planification d'un rappel d'alarme.
+     * et planification d'un rappel d'alarme. Supporte plusieurs photos, la catégorie et le code-barres.
      */
     fun addReceipt(
         title: String,
         purchaseDate: Long,
         warrantyMonths: Int,
         notes: String?,
-        tempImagePath: String
+        tempImagePaths: List<String>,
+        category: String,
+        barcode: String?
     ) {
         viewModelScope.launch {
-            // Déplacer l'image capturée du répertoire temporaire vers le stockage interne sécurisé
-            val finalImageName = "receipt_${System.currentTimeMillis()}.jpg"
-            val finalFile = File(app.filesDir, finalImageName)
-            val tempFile = File(tempImagePath)
-            if (tempFile.exists()) {
-                tempFile.copyTo(finalFile, overwrite = true)
-                try {
-                    tempFile.delete() // Nettoyage
-                } catch (e: Exception) {
-                    Log.e("ReceiptViewModel", "Erreur lors de la suppression de l'image temp", e)
+            val finalPaths = mutableListOf<String>()
+
+            tempImagePaths.forEachIndexed { index, tempPath ->
+                val finalImageName = "receipt_${System.currentTimeMillis()}_$index.jpg"
+                val finalFile = File(app.filesDir, finalImageName)
+                val tempFile = File(tempPath)
+                if (tempFile.exists()) {
+                    try {
+                        tempFile.copyTo(finalFile, overwrite = true)
+                        finalPaths.add(finalFile.absolutePath)
+                        tempFile.delete() // Nettoyage de l'image temp
+                    } catch (e: Exception) {
+                        Log.e("ReceiptViewModel", "Erreur lors de la copie de l'image temp", e)
+                    }
                 }
             }
 
@@ -114,8 +140,10 @@ class ReceiptViewModel(
                 title = title.trim(),
                 purchaseDate = purchaseDate,
                 warrantyEndDate = warrantyEndDate,
-                imagePath = finalFile.absolutePath,
-                notes = notes?.trim()
+                imagePath = finalPaths.joinToString(","),
+                notes = notes?.trim(),
+                category = category,
+                barcode = barcode
             )
 
             // Insertion dans la base de données Room
@@ -127,15 +155,21 @@ class ReceiptViewModel(
     }
 
     /**
-     * Supprime un reçu, efface son fichier d'image associé pour optimiser l'espace,
+     * Supprime un reçu, efface ses fichiers d'images associés pour optimiser l'espace,
      * et annule l'alarme correspondante.
      */
     fun deleteReceipt(receipt: Receipt) {
         viewModelScope.launch {
-            // 1. Supprimer le fichier image localement
-            val file = File(receipt.imagePath)
-            if (file.exists()) {
-                file.delete()
+            // 1. Supprimer tous les fichiers images localement
+            receipt.imagePathsList.forEach { path ->
+                val file = File(path)
+                if (file.exists()) {
+                    try {
+                        file.delete()
+                    } catch (e: Exception) {
+                        Log.e("ReceiptViewModel", "Erreur lors de la suppression de l'image $path", e)
+                    }
+                }
             }
 
             // 2. Annuler l'alarme système
